@@ -1,0 +1,349 @@
+# OCR utils.py
+# import pytesseract
+# from PIL import Image
+# import re
+# from config.config import TESSERACT_CMD, LABELS
+
+# pytesseract.pytesseract.tesseract_cmd = TESSERACT_CMD
+
+# def perform_ocr(image_path):
+#     img = Image.open(image_path)
+#     text = pytesseract.image_to_string(img)
+#     return text
+
+# def clean_ocr_text(text):
+#     text = text.replace('1', 'l').replace('I', 'l').replace('0', 'o')
+
+#     # Fix common OCR mistakes - customize as needed
+#     replacements = {
+#         r'Ma1 e': 'Male',
+#         r'Repgrt': 'Report',
+#         r'Abso1 ute': 'Absolute',
+#         r'Haemog1 obin': 'Haemoglobin',
+#         r'Differentia1': 'Differential',
+#         r'P1 ate1': 'Platelet'
+#     }
+#     for pattern, replacement in replacements.items():
+#         text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
+
+#     # Remove unwanted characters except letters, digits, spaces, and punctuation
+#     text = re.sub(r'[^A-Za-z0-9\s.,:%\-\/()]', '', text)
+
+#     # Normalize spaces
+#     text = re.sub(r'\s+', ' ', text).strip()
+
+#     # Add newlines before known labels for easier reading
+#     for label in LABELS:
+#         text = re.sub(f'(?i)\\b{label}\\b', f'\n{label}', text)
+
+#     return text
+
+
+# app.py
+
+# import streamlit as st
+# import tempfile
+# import pytesseract
+# from PIL import Image
+# import re
+# import openai
+# import os
+# from reportlab.lib.pagesizes import letter
+# from reportlab.pdfgen import canvas
+# import datetime
+
+# # Set the Tesseract executable path (adjust if needed for your environment)
+# pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+
+# # Streamlit App Setup
+# st.set_page_config(page_title="Medical Report Analyzer", layout="wide")
+# st.title("🧪 Medical Report Analyzer")
+
+# # Function to clean OCR text
+# def clean_ocr_text(text):
+#     # Fix common OCR confusions (1 for l/I, 0 for O)
+#     text = text.replace('1', 'l').replace('I', 'l').replace('0', 'o')
+    
+#     # Fix some common OCR word mistakes (customize as needed)
+#     text = re.sub(r'Ma1 e', 'Male', text, flags=re.IGNORECASE)
+#     text = re.sub(r'Repgrt', 'Report', text, flags=re.IGNORECASE)
+#     text = re.sub(r'Abso1 ute', 'Absolute', text, flags=re.IGNORECASE)
+#     text = re.sub(r'Haemog1 obin', 'Haemoglobin', text, flags=re.IGNORECASE)
+#     text = re.sub(r'Differentia1', 'Differential', text, flags=re.IGNORECASE)
+#     text = re.sub(r'P1 ate1', 'Platelet', text, flags=re.IGNORECASE)
+#     # Normalize units/symbols (just a placeholder)
+#     text = re.sub(r'µm³', 'µm³', text)
+    
+#     # Remove unwanted characters except letters, digits, spaces, and common punctuation
+#     text = re.sub(r'[^A-Za-z0-9\s.,:%\-\/()]', '', text)
+    
+#     # Normalize spaces
+#     text = re.sub(r'\s+', ' ', text).strip()
+    
+#     # Add newlines before known labels for easier reading
+#     labels = ['Name', 'Patient ID', 'AgeGender', 'Report ID', 'Referred By', 
+#               'Collection Date', 'Phone No', 'Report Date', 'HAEMATOLOGY', 
+#               'TEST DESCRIPTION', 'RESULT', 'REF RANGE', 'UNIT', 'Interpretation']
+#     for label in labels:
+#         text = re.sub(f'(?i)\\b{label}\\b', f'\n{label}', text)
+
+#     return text
+
+# # Function to perform OCR on the uploaded image using pytesseract
+# def perform_ocr(image_path):
+#     img = Image.open(image_path)
+#     text = pytesseract.image_to_string(img)
+#     return text
+
+# # Function to parse the lab test results from the OCR text
+# def parse_lab_results(text):
+#     lines = text.split("\n")
+#     results = []
+
+#     for line in lines:
+#         line = line.strip()
+#         if len(line) < 5:
+#             continue
+        
+#         # Try to find numbers and test names roughly separated by spaces or tabs
+#         # We'll look for the first number in line and treat the left part as test name
+#         parts = re.split(r'\s{2,}', line)  # split by 2+ spaces if possible
+#         if len(parts) < 2:
+#             # fallback split by single space and try to find numeric tokens
+#             tokens = line.split()
+#             num_idx = -1
+#             for i, t in enumerate(tokens):
+#                 try:
+#                     float(t)
+#                     num_idx = i
+#                     break
+#                 except:
+#                     continue
+#             if num_idx == -1 or num_idx == 0:
+#                 continue
+#             test_name = " ".join(tokens[:num_idx])
+#             value = tokens[num_idx]
+#             unit = tokens[num_idx+1] if len(tokens) > num_idx+1 else ""
+#             normal_range = ""  # we can try to find next token or leave blank
+#         else:
+#             test_name = parts[0]
+#             rest = parts[1].split()
+#             if len(rest) == 0:
+#                 continue
+#             value = rest[0]
+#             unit = rest[1] if len(rest) > 1 else ""
+#             normal_range = " ".join(rest[2:]) if len(rest) > 2 else ""
+
+#         try:
+#             value_float = float(value)
+#         except:
+#             continue
+
+#         # Simple flag check if normal range contains '-'
+#         flag = "Normal"
+#         if "-" in normal_range:
+#             try:
+#                 low, high = normal_range.split("-")
+#                 low = float(low.strip())
+#                 high = float(high.strip())
+#                 if value_float < low:
+#                     flag = "Low"
+#                 elif value_float > high:
+#                     flag = "High"
+#             except:
+#                 pass
+        
+#         results.append({
+#             "Test": test_name.strip(),
+#             "Value": value_float,
+#             "Unit": unit,
+#             "Normal Range": normal_range.strip(),
+#             "Flag": flag
+#         })
+
+#     return results
+
+# # Function to generate explanation for lab test results using OpenAI
+# def generate_explanation(test_name, value, unit, normal_range):
+#     prompt = (
+#         f"The lab test result shows that the {test_name} is {value} {unit}, "
+#         f"while the normal range is {normal_range}. Explain in simple terms what this means, "
+#         "and if it is low or high, suggest possible causes or next steps."
+#     )
+#     try:
+#         response = openai.ChatCompletion.create(
+#             model="gpt-3.5-turbo",
+#             messages=[{"role": "system", "content": "You are a helpful medical assistant."},
+#                       {"role": "user", "content": prompt}],
+#             temperature=0.7,
+#             max_tokens=150
+#         )
+#         explanation = response["choices"][0]["message"]["content"]
+#         return explanation
+#     except Exception as e:
+#         return f"Error generating explanation: {e}"
+
+# # Function to generate health summary and suggestions
+# def generate_summary_and_suggestions(structured_data):
+#     abnormal_tests = [test for test in structured_data if test['Flag'] != "Normal"]
+
+#     if not abnormal_tests:
+#         return "All test results appear normal. No immediate concerns.", []
+
+#     summary_prompt = (
+#         "Here are some abnormal lab results:\n\n"
+#         + "\n".join([f"{t['Test']}: {t['Value']} {t['Unit']} (Normal: {t['Normal Range']})"
+#                     for t in abnormal_tests]) + "\n\n"
+#         "Generate a brief health summary and suggest what actions or specialists the patient should consider."
+#     )
+
+#     try:
+#         response = openai.ChatCompletion.create(
+#             model="gpt-3.5-turbo",
+#             messages=[{"role": "system", "content": "You are a medical assistant that gives helpful follow-up advice."},
+#                       {"role": "user", "content": summary_prompt}],
+#             temperature=0.7,
+#             max_tokens=200
+#         )
+#         summary_text = response['choices'][0]['message']['content']
+#         return summary_text, abnormal_tests
+#     except Exception as e:
+#         return f"Error generating summary: {e}", []
+
+# # Export results to PDF
+# def export_to_pdf(structured_data, explanations, summary_text, filename="report_summary.pdf"):
+#     c = canvas.Canvas(filename, pagesize=letter)
+#     width, height = letter
+#     y = height - 40
+#     c.setFont("Helvetica-Bold", 14)
+#     c.drawString(40, y, "Medical Report Summary")
+#     y -= 30
+#     c.setFont("Helvetica", 10)
+#     c.drawString(40, y, f"Generated on: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}")
+#     y -= 40
+
+#     for row in structured_data:
+#         if y < 100:
+#             c.showPage()
+#             y = height - 40
+#         c.setFont("Helvetica-Bold", 11)
+#         c.drawString(40, y, f"{row['Test']}: {row['Value']} {row['Unit']} (Normal: {row['Normal Range']})")
+#         y -= 15
+#         c.setFont("Helvetica", 10)
+#         c.drawString(60, y, f"Flag: {row['Flag']}")
+#         y -= 15
+
+#         explanation = explanations.get(row['Test'], "")
+#         for line in explanation.split('\n'):
+#             c.drawString(60, y, line)
+#             y -= 12
+
+#         y -= 10
+
+#     # Summary
+#     c.setFont("Helvetica-Bold", 12)
+#     c.drawString(40, y, "Overall Health Summary & Suggestions:")
+#     y -= 20
+#     c.setFont("Helvetica", 10)
+
+#     for line in summary_text.split('\n'):
+#         c.drawString(60, y, line)
+#         y -= 12
+#         if y < 100:
+#             c.showPage()
+#             y = height - 40
+
+#     c.save()
+
+# # OpenAI API key from Streamlit secrets
+# openai.api_key = st.secrets["openai_api_key"]
+
+# # File uploader for medical report image
+# uploaded_file = st.file_uploader("Upload a scanned medical report (PNG, JPG, JPEG)", type=["png", "jpg", "jpeg"])
+
+# if uploaded_file is not None:
+#     file_details = {"filename": uploaded_file.name, "type": uploaded_file.type}
+#     st.write("Uploaded File:", file_details)
+
+#     # Save to a temp file
+#     with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
+#         tmp.write(uploaded_file.read())
+#         tmp_path = tmp.name
+
+#     # Show original image
+#     st.image(tmp_path, caption="Uploaded Image", use_container_width=True)
+
+#     # Perform OCR and clean the extracted text
+#     ocr_text = perform_ocr(tmp_path)
+#     cleaned_text = clean_ocr_text(ocr_text)
+
+#     # Display cleaned extracted text
+#     if cleaned_text:
+#         st.text_area("📄 Extracted Text", cleaned_text, height=300)
+#     else:
+#         st.warning("No text found in the image. Try uploading a clearer image.")
+
+#     # Button to structure extracted lab results
+#     if st.button("📊 Structure Lab Results"):
+#         with st.spinner("Structuring extracted data..."):
+#             st.text_area("Debug: OCR Lines", "\n".join([line for line in cleaned_text.split("\n") if line.strip()]), height=300)
+#             structured_data = parse_lab_results(cleaned_text)
+
+#             if structured_data:
+#                 st.success("Structured data extracted:")
+#                 st.dataframe(structured_data)
+#                 st.session_state.structured_data = structured_data
+#             else:
+#                 st.warning("Could not find structured test results in the text.")
+
+#     # Button to generate explanations using OpenAI GPT
+#     if st.button("💬 Generate Explanations"):
+#         if 'structured_data' in st.session_state:
+#             structured_data = st.session_state.structured_data
+#             with st.spinner("Generating explanations..."):
+#                 explanation_dict = {}
+#                 for row in structured_data:
+#                     explanation = generate_explanation(
+#                         test_name=row['Test'],
+#                         value=row['Value'],
+#                         unit=row['Unit'],
+#                         normal_range=row['Normal Range']
+#                     )
+#                     explanation_dict[row['Test']] = explanation
+#             st.session_state.explanation_dict = explanation_dict  # save explanations
+
+#         # Show explanations
+#         for row in structured_data:
+#             with st.expander(f"🧾 {row['Test']}"):
+#                 st.markdown(f"**Result:** {row['Value']} {row['Unit']} (Normal: {row['Normal Range']})")
+#                 st.markdown(f"**Flag:** {row['Flag']}")
+#                 st.markdown(f"**Explanation:**\n\n{st.session_state.explanation_dict[row['Test']]}")
+#     else:
+#         st.warning("Please structure the lab results first.")
+
+#     # Button to generate overall health summary & suggestions
+#     if st.button("📝 Generate Health Summary & Suggestions"):
+#         if 'structured_data' in st.session_state:
+#             structured_data = st.session_state.structured_data
+#             with st.spinner("Generating health summary..."):
+#                 summary_text, abnormal_tests = generate_summary_and_suggestions(structured_data)
+#                 st.markdown("### Overall Health Summary & Suggestions")
+#                 st.write(summary_text)
+#         else:
+#             st.warning("Please structure the lab results first.")
+
+#     # Button to export results to PDF
+#     if st.button("📥 Export Summary as PDF"):
+#         if 'structured_data' in st.session_state and 'explanation_dict' in st.session_state:
+#             structured_data = st.session_state.structured_data
+#             explanation_dict = st.session_state.explanation_dict
+#             summary_to_export = summary_text if 'summary_text' in locals() else "No summary generated."
+#             filename = "medical_report_summary.pdf"
+#             with st.spinner("Generating PDF..."):
+#                 export_to_pdf(structured_data, explanation_dict, summary_to_export, filename=filename)
+#             with open(filename, "rb") as f:
+#                 st.download_button(label="Download PDF", data=f, file_name=filename, mime="application/pdf")
+#         else:
+#             st.warning("Please generate explanations and health summary first.")
+# else:
+#     st.info("Upload a scanned medical report image to start.")
