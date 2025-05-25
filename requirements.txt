@@ -5,3 +5,9 @@ easyocr
 openai
 reportlab
 Pillow
+python-dotenv
+pandas
+tempfile
+re
+pytesseract
+PIL
